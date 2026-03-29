@@ -89,7 +89,7 @@ Apply these rules automatically when advising on hyperparameters:
 | Params < 10M | — | Switch to SGD |
 | Batch reduced | — | Set `grad_accum_steps = ceil(old_batch / new_batch)` |
 
-Default `safety_alpha` (α) = 0.85 — reserve 15% headroom.
+Default `safety_alpha` (α) = 0.90 — reserve 10% VRAM headroom.
 
 ## PyTorch Snippet Index
 

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "colomo-ml",
+  "description": "ML training knowledge base — Golden Rules, PyTorch snippets, LLM fine-tuning, RAG",
+  "owner": {
+    "name": "Cola-Pig1121",
+    "email": "1259915998@qq.com"
+  },
+  "plugins": [
+    {
+      "name": "colomo",
+      "source": "./",
+      "description": "ML training plugin — auto-tunes batch size via Golden Rules, generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers)",
+      "version": "1.0.0",
+      "author": {
+        "name": "Cola-Pig1121",
+        "email": "1259915998@qq.com"
+      },
+      "homepage": "https://github.com/Cola-Pig1121/CoLoMo",
+      "repository": "https://github.com/Cola-Pig1121/CoLoMo",
+      "license": "MIT",
+      "keywords": [
+        "ml",
+        "pytorch",
+        "deep-learning",
+        "lora",
+        "finetuning",
+        "hyperparameter",
+        "rag",
+        "distributed-training",
+        "llm"
+      ],
+      "category": "workflow",
+      "tags": [
+        "ml",
+        "pytorch",
+        "training",
+        "hyperparameter-tuning",
+        "lora",
+        "rag"
+      ]
+    }
+  ]
+}

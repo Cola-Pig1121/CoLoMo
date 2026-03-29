@@ -37,7 +37,17 @@ Commands:
 
 ## Installation
 
-Copy to your Claude Code plugin directory:
+### Via Claude Code Marketplace (Recommended)
+
+Install directly from GitHub:
+
+```
+/plugin marketplace add https://github.com/Cola-Pig1121/CoLoMo
+```
+
+Or submit to the official marketplace at https://claude.ai/settings/plugins/submit.
+
+### Manual Install
 
 ```bash
 cp -r .claude-plugin ~/.claude/plugins/colomo/
@@ -45,8 +55,6 @@ cp -r skills ~/.claude/plugins/colomo/
 cp -r agents ~/.claude/plugins/colomo/
 cp -r rules/ml ~/.claude/rules/ml/
 ```
-
-Or publish to GitHub and install via Claude Code marketplace.
 
 ---
 
@@ -62,7 +70,7 @@ Or publish to GitHub and install via Claude Code marketplace.
 | Params < 10M | — | Use SGD |
 | Batch reduced | — | Set `grad_accum_steps = ceil(old / new)` |
 
-Default `α` (safety_alpha) = **0.85** — reserve 15% VRAM headroom.
+Default `α` (safety_alpha) = **0.90** — reserve 10% VRAM headroom.
 
 ---
 

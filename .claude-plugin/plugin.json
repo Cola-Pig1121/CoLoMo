@@ -1,7 +1,25 @@
 {
   "name": "colomo",
   "version": "1.0.0",
-  "description": "ML training watchdog — hyperparameter tuning via Golden Rules, PyTorch code templates, autonomous training agents, and LLM fine-tuning guidance",
-  "author": { "name": "CoLoMo" },
-  "license": "MIT"
+  "description": "ML training plugin — auto-tunes batch size via Golden Rules (10% VRAM reserved), generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers)",
+  "author": {
+    "name": "Cola-Pig1121",
+    "email": "1259915998@qq.com"
+  },
+  "homepage": "https://github.com/Cola-Pig1121/CoLoMo",
+  "repository": "https://github.com/Cola-Pig1121/CoLoMo",
+  "license": "MIT",
+  "keywords": [
+    "ml",
+    "pytorch",
+    "deep-learning",
+    "lora",
+    "finetuning",
+    "hyperparameter",
+    "rag",
+    "distributed-training",
+    "llm"
+  ],
+  "agents": ["./agents/colomo.md"],
+  "skills": ["./skills/ml-training/SKILL.md"]
 }

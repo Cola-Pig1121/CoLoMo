@@ -8,7 +8,7 @@
 ```
 RecommendedBatchSize = α × (GPU_Memory_MB / (ParamMem_MB + ActivationPerSample_MB × FeatureSize))
 ```
-- Default `α = 0.85` (safety headroom)
+- Default `α = 0.90` (10% VRAM reserved)
 - `ParamMem_MB ≈ param_count × 4 bytes` (FP32) or `× 2 bytes` (FP16/BF16)
 - `ActivationPerSample_MB ≈ (2 × layers × hidden_size² + 4 × layers × hidden_size × vocab_size) / batch_size`
 

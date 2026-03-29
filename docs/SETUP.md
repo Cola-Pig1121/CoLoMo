@@ -18,7 +18,7 @@ RecommendedBatchSize = α × (GPU_Memory_MB / (ParamMem_MB + ActivationPerSample
 
 | Parameter | Description |
 |-----------|-------------|
-| `α` (safety_alpha) | Headroom factor, default 0.85 (15% reserved) |
+| `α` (safety_alpha) | Headroom factor, default 0.90 (10% VRAM reserved) |
 | `GPU_Memory_MB` | Total GPU VRAM in MB |
 | `ParamMem_MB` | `param_count × 4` (FP32) or `× 2` (BF16/FP16) |
 | `ActivationPerSample_MB` | Activation memory per sample |
