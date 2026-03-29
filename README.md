@@ -96,20 +96,25 @@ Default `α` (safety_alpha) = **0.90** — reserve 10% VRAM headroom.
 ```
 CoLoMo/
 ├── .claude-plugin/
-│   └── plugin.json          # Plugin manifest
+│   ├── plugin.json          # Plugin manifest
+│   └── marketplace.json      # Marketplace discovery manifest
 ├── skills/
 │   └── ml-training/
-│       └── SKILL.md        # ML knowledge base
+│       └── SKILL.md        # ML knowledge base (17 snippets + Golden Rules)
 ├── agents/
 │   └── colomo.md           # CoLoMo subagent
 ├── rules/
 │   └── ml/
 │       ├── coding-style.md # PyTorch conventions
 │       └── patterns.md      # Golden Rules + patterns
+├── templates/
+│   ├── pytorch-snippets/    # 17 standalone PyTorch snippets
+│   ├── model_templates/     # Full project templates (pytorch-template)
+│   └── docs/               # Algorithm references (LoRA, RAG, etc.)
 ├── docs/
 │   ├── CONTRIBUTING.md     # Development guide
-│   └── SETUP.md          # Configuration reference
-└── CLAUDE.md             # Claude Code guidance
+│   └── SETUP.md           # Configuration reference
+└── CLAUDE.md              # Claude Code guidance
 ```
 
 ---

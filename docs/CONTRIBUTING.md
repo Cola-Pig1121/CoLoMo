@@ -7,10 +7,14 @@ CoLoMo is a Claude Code plugin. Contributions are primarily knowledge content (s
 | Directory | Purpose |
 |-----------|---------|
 | `.claude-plugin/plugin.json` | Plugin manifest |
-| `skills/ml-training/SKILL.md` | ML training knowledge base |
+| `.claude-plugin/marketplace.json` | Marketplace discovery manifest |
+| `skills/ml-training/SKILL.md` | ML training knowledge base (17 snippets + Golden Rules) |
 | `agents/colomo.md` | CoLoMo subagent definition |
 | `rules/ml/coding-style.md` | PyTorch code conventions |
 | `rules/ml/patterns.md` | Golden Rules + ML design patterns |
+| `templates/pytorch-snippets/` | 17 standalone PyTorch snippet files |
+| `templates/model_templates/` | Full project templates (e.g. pytorch-template) |
+| `templates/docs/` | Algorithm references (LoRA, RAG, Transformer, etc.) |
 
 ## Adding ML Knowledge
 
@@ -84,6 +88,24 @@ model: sonnet
 ---
 ```
 
+### Marketplace Convention
+
+```json
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "<owner>-<plugin>",
+  "owner": { "name": "...", "email": "..." },
+  "plugins": [{
+    "name": "<plugin>",
+    "source": "./",
+    "version": "1.0.0",
+    "keywords": [...],
+    "category": "workflow",
+    "tags": [...]
+  }]
+}
+```
+
 ### Rule Files
 
 Each rule file extends a common rule:
@@ -95,6 +117,9 @@ Each rule file extends a common rule:
 
 - [ ] Frontmatter fields are complete and accurate
 - [ ] Golden Rule formulas are mathematically correct
+- [ ] `safety_alpha` = **0.90** (10% VRAM reserved) used in all formulas and references
+- [ ] `marketplace.json` `$schema`, `name`, `owner`, `plugins` fields present
+- [ ] `plugin.json` has `agents` and `skills` arrays
 - [ ] Code snippets are idiomatic PyTorch
 - [ ] Algorithm explanations follow the prescribed structure
 - [ ] No hardcoded values — use named constants
