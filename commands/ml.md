@@ -16,66 +16,109 @@ Invoke the **CoLoMo** agent for autonomous ML training assistance.
 
 | Subcommand | Description |
 |-----------|-------------|
-| `plan <requirement>` | **Detect GPU → Calculate params → Generate plan** |
-| `detect` | Detect GPU/CPU config and show Golden Rules recommendations |
-| `advise` | GPU-based hyperparameter recommendations (Golden Rules) |
+| `detect` | Detect GPU/CPU config, show Golden Rules recommendations |
+| `plan <requirement>` | Detect → Calculate → Generate plan.md + config.yaml |
+| `execute` | **Check env → Install deps → Generate code from plan** |
+| `advise` | GPU-based hyperparameter recommendations |
 | `run` | Run training in the project's Conda environment |
 | `test` | Run pytest in the project's Conda environment |
 | `explain <topic>` | Explain an ML algorithm (teacher mode) |
 | `rollback [n]` | Undo the last N config changes |
 
-## Workflow: `/ml plan`
-
-**Before planning, always detect system config first:**
+## Workflow
 
 ```
-1. Detect → nvidia-smi (GPU name, VRAM, utilization)
-2. Calculate → Golden Rules formula
-3. Plan → Generate plan.md with computed parameters
+Requirement
+    ↓
+/ml plan       → Detect GPU → Calculate params → Generate plan.md + config.yaml
+    ↓
+/ml execute    → Check env → Install deps → Generate code from plan
+    ↓
+/ml run        → conda run -n <env> python train.py
+    ↓
+/ml test       → conda run -n <env> pytest
 ```
 
-**Golden Rules formula (safety_alpha = 0.90):**
+## 1. Detect
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu --format=csv,noheader
+nproc && free -h | grep Mem
 ```
-RecommendedBatchSize = 0.90 × (GPU_Memory_MB / (ParamMem_MB + ActivationPerSample_MB))
+
+## 2. Plan (`/ml plan`)
+
+1. Detect GPU/CPU config
+2. Calculate batch_size, lr, optimizer via Golden Rules
+3. Generate `plan.md` with tasks marked `[ ]`
+4. Generate `config.yaml`
+5. Return summary
+
+## 3. Execute (`/ml execute`)
+
+**Pre-execution checks (stop on first failure):**
+
 ```
+1. Check plan.md exists?       → Error if missing, prompt /ml plan first
+2. Detect conda location?        → Ask user: install conda or use system python?
+3. Check conda env exists?       → Ask user: create env or use existing?
+4. Check Python deps installed?  → pip install -r requirements.txt
+5. Execute plan tasks in order
+```
+
+### Conda Not Found → Ask User
+
+If `conda` is not in PATH, ask user:
+
+```
+[ERROR] Conda not found in PATH.
+  Detected Python: <path>
+  Miniconda recommended for ML projects.
+
+  Options:
+    [1] Install Miniconda (recommended) — I'll run the installer
+    [2] Use system Python — continue without conda
+    [3] Cancel
+
+  Your choice:
+```
+
+If user chooses `[1]`: Run Miniconda install commands.
+If user chooses `[2]`: Skip conda env creation, use `python` directly.
+
+### Conda Env Missing → Ask User
+
+If `conda env list` does not show the env from `config.yaml`:
+
+```
+[ERROR] Conda environment "mnist" not found.
+  config.yaml specifies: conda_env: mnist
+
+  Options:
+    [1] Create environment "mnist" — conda create -n mnist python=3.11
+    [2] Use existing environment — specify name
+    [3] Cancel
+
+  Your choice:
+```
+
+## 4. Advise (Golden Rules)
+
+- `BS = 0.90 × VRAM_Available / (param_mem + activation_mem)`
+- `LR_new = LR_old × (BS_new / BS_old)`
+- Optimizer: SGD (<10M), Adam (10M–100M), AdamW (>100M)
 
 ## Examples
 
 ```
-# Full workflow: detect + plan
 /ml plan fine-tune Llama2 with QLoRA on a single GPU
-
-# Just see GPU info and recommendations
+/ml execute       # execute plan.md step by step
 /ml detect
-
-# Ask for advice on current config
 /ml advise
-
-# Explain an algorithm
-/ml explain LoRA
-
-# Rollback config changes
+/ml run
+/ml test
 /ml rollback 2
 ```
-
-## What This Does
-
-### 1. Detect (`/ml detect` or automatic on `/ml plan`)
-- Runs `nvidia-smi` to get GPU name, VRAM total/used, utilization
-- Runs `nproc` and `free -h` for CPU/RAM info
-- Shows all detected hardware
-
-### 2. Calculate (Golden Rules)
-- `BS = 0.90 × VRAM_Available / (param_mem + activation_mem)`
-- `LR_new = LR_old × (BS_new / BS_old)`
-- Optimizer: SGD (<10M params), Adam (10M–100M), AdamW (>100M)
-
-### 3. Plan (`/ml plan`)
-1. Detect system config
-2. Calculate hyperparameters using Golden Rules
-3. Generate `plan.md` with computed `batch_size`, `lr`, `optimizer`
-4. Generate `config.yaml` with those parameters
-5. Return structured summary
 
 ## Related
 

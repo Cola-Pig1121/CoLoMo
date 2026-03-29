@@ -21,7 +21,9 @@ Requirement → /plan → plan.md → /execute → files + conda env → /runner
 
 | Command | What it does |
 |---------|-------------|
-| `/ml plan <requirement>` | Generate implementation plan from a requirement |
+| `/ml detect <project>` | Detect GPU/CPU config, show Golden Rules recommendations |
+| `/ml plan <requirement>` | Detect → Calculate → Generate plan.md + config.yaml |
+| `/ml execute` | Check env → Install deps → Generate code from plan |
 | `/ml advise` | GPU-based hyperparameter recommendations |
 | `/ml run` | Run training in the project's Conda environment |
 | `/ml test` | Run pytest in the project's Conda environment |
@@ -81,23 +83,134 @@ Optimizer selection:
 7. Return structured summary
 
 ### 4. Execute (`/ml execute`)
-- Reads `plan.md`
-- Creates necessary files using templates
-- Creates or updates Conda environment
-- Returns execution report
 
-### 3. Runner (`/ml run`)
+Execute the project plan step by step. **Always run pre-execution checks first** — do NOT skip them.
+
+#### Pre-Execution Checklist (stop on first failure)
+
+**Step 1: Find plan.md**
+```bash
+ls <project>/plan.md
+```
+If not found → print error and stop. Tell user to run `/ml plan` first.
+
+**Step 2: Read plan and config**
+```bash
+cat <project>/plan.md
+cat <project>/config.yaml
+```
+Extract: `conda_env`, `backend`, `requirements.txt` path.
+
+**Step 3: Detect conda location**
+
+```bash
+which conda 2>/dev/null || echo "NOT_FOUND"
+conda --version 2>/dev/null || echo "NOT_FOUND"
+```
+
+| Result | Action |
+|--------|--------|
+| `conda found` | Proceed to Step 4 |
+| `NOT_FOUND` | Ask user (see Conda Not Found below) |
+
+**Step 4: Check conda environment exists**
+
+```bash
+conda env list | grep "^<conda_env> "
+```
+
+| Result | Action |
+|--------|--------|
+| `env exists` | Proceed to Step 5 |
+| `env missing` | Ask user (see Env Missing below) |
+
+**Step 5: Check Python dependencies installed**
+
+```bash
+conda run -n <conda_env> python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "MISSING"
+conda run -n <conda_env> python -c "import torchvision; print(torchvision.__version__)" 2>/dev/null || echo "MISSING"
+```
+
+If any package is `MISSING`:
+```bash
+conda run -n <conda_env> pip install -r <project>/requirements.txt
+```
+
+**Step 6: Execute plan tasks**
+
+Read `plan.md`, iterate through all `[ ]` unchecked tasks:
+1. For each task, generate the corresponding code file using templates from `templates/pytorch-snippets/`
+2. Mark task `[>>]` (in progress) while executing
+3. Mark task `[DONE]` when complete
+4. If task fails → mark `[!]` (error) and report
+
+Report format:
+```
+[>>] Stage 2: Dataset
+[DONE] Stage 2: Dataset
+  ✓ Created data_loader/ with MNIST setup
+  ✓ Added DataLoader with batch_size=64
+[>>] Stage 3: Model
+...
+[✓] All tasks complete. Run /ml run to start training.
+```
+
+#### Conda Not Found (Step 3)
+
+Print this message and wait for user response:
+
+```
+[ERROR] Conda not found in PATH.
+
+  Conda is required to create isolated ML environments.
+  Detected system Python: <python_path>
+
+  Options:
+    [1] Install Miniconda (recommended)
+        → I'll run: wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+                     bash Miniconda3-latest-Linux-x86_64.sh
+    [2] Use system Python (no conda, packages installed globally)
+    [3] Cancel /ml execute
+
+  Your choice:
+```
+
+- If `[1]`: Run the install commands, then re-run Step 3-4.
+- If `[2]`: Skip conda env creation, use `python` directly for all commands.
+- If `[3]`: Stop and print "Cancelled."
+
+#### Conda Env Missing (Step 4)
+
+```
+[ERROR] Conda environment "<conda_env>" not found.
+
+  config.yaml specifies: conda_env: <conda_env>
+
+  Options:
+    [1] Create environment "<conda_env>" (Python 3.11)
+        → conda create -n <conda_env> python=3.11 -y
+    [2] Use existing environment — specify name:
+    [3] Cancel /ml execute
+
+  Your choice:
+```
+
+- If `[1]`: Run create command, then proceed to Step 5.
+- If `[2]`: Ask for env name, update `config.yaml`, re-run Step 4.
+- If `[3]`: Stop.
+
+### 5. Runner (`/ml run`)
 - Spawns training via `conda run -n <env> python train.py`
 - Streams stdout/stderr to output panel
 - Tracks PID and exit code
 - On failure: suggests fixes based on logs
 
-### 4. Tester (`/ml test`)
+### 6. Tester (`/ml test`)
 - Runs `conda run -n <env> pytest`
 - Reports model overview + task_completed status
 - Returns structured summary
 
-### 5. Teacher (`/ml explain <topic>`)
+### 7. Teacher (`/ml explain <topic>`)
 - Explains ML algorithms with:
   - **Intro**: what it is and why it matters
   - **Principle**: how it works (with formulas)
