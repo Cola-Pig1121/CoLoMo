@@ -4,6 +4,14 @@
 
 ---
 
+```bash
+  # 1. 把这个 GitHub 仓库添加为 marketplace
+  /plugin marketplace add Cola-Pig1121/CoLoMo
+  # 2. 从该 marketplace 安装插件
+  /plugin install colomo@Cola-Pig1121/CoLoMo
+```
+
+
 ## What This Plugin Provides
 
 ### 1. ML Training Skill (`skills/ml-training/SKILL.md`)
