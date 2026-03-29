@@ -1,0 +1,10 @@
+rust_watchdog/target/*
+.claude/*
+agents/*
+docs/*
+mnist/*
+.env
+AGENTS.md
+CLAUDE.md
+CoLoMo.pptx
+rust_watchdog/log.log
