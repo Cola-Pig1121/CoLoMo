@@ -857,7 +857,6 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
             }
         }
         "/plan" => {
-            // eprintln!("[DEBUG] /plan command detected");
             let requirement = if cmd.len() > 5 { cmd[5..].trim() } else { "" };
             if requirement.is_empty() {
                 let mut s = state.lock().unwrap();
@@ -865,11 +864,21 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                 s.output_lines
                     .push("Example: /plan implement batch size auto-tuning".into());
             } else {
-                // eprintln!("[DEBUG] Requirement: {}", requirement);
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let state_clone = state.clone();
                 let mut s = state.lock().unwrap();
-                s.output_lines.push(format!("user: /plan {} ---分割线", requirement));
-                s.output_lines.push("agent: [Planning...]".into());
+                s.output_lines.push(format!("user: /plan {}", requirement));
+                s.active_agent = Some("planner".into());
+                s.agent_task = Some("Running...".into());
+                s.output_lines.push("agent: [planner] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    for line in log_lines {
+                        s.output_lines.push(line);
+                    }
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 let req = requirement.to_string();
                 let project_root = s
@@ -877,6 +886,7 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                     .parent()
                     .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| PathBuf::from("."));
+                drop(s);
                 let runner = llm_agent::AgentRunner::new(state_clone);
                 runner.spawn_planner(req, project_root);
             }
@@ -929,16 +939,21 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
             let project_root = {
                 let mut s = state.lock().unwrap();
                 if s.running {
-                    s.output_lines.push("agent: Training already running. Use /stop first.".into());
+                    s.output_lines
+                        .push("agent: Training already running. Use /stop first.".into());
                     s.output_scroll = usize::MAX;
                     return;
                 }
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let mut s = state.lock().unwrap();
             s.active_agent = Some("runner".into());
             s.agent_task = Some("Training".into());
-            s.output_lines.push("user: /run;agent: Starting training...".into());
+            s.output_lines
+                .push("user: /run;agent: Starting training...".into());
             s.output_scroll = usize::MAX;
             drop(s);
             let agent = llm_agent::CoLoMoAgent::new(project_root);
@@ -964,19 +979,35 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
         "/execute" => {
             let project_root = {
                 let s = state.lock().unwrap();
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let plan_path = project_root.join("plan.md");
             if !plan_path.exists() {
                 let mut s = state.lock().unwrap();
-                s.output_lines.push("agent: No plan.md found. Run /plan first.".into());
+                s.output_lines
+                    .push("agent: No plan.md found. Run /plan first.".into());
                 s.output_scroll = usize::MAX;
             } else {
+                // Estimate output panel width (50% of terminal, minus borders/padding)
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let mut s = state.lock().unwrap();
+                // Show "running..." immediately
                 s.active_agent = Some("executor".into());
-                s.agent_task = Some("Executing plan".into());
+                s.agent_task = Some("Running...".into());
                 s.agent_progress = Some("0/1".into());
-                s.output_lines.push("user: /execute;agent: Starting autonomous execution...".into());
+                s.output_lines.push("user: /execute".into());
+                s.output_lines.push("agent: [executor] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    for line in log_lines {
+                        s.output_lines.push(line);
+                    }
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 drop(s);
                 let state_clone = state.clone();
@@ -986,18 +1017,37 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                         Ok(_) => {
                             // Read entry file from config.yaml
                             let config_path = project_root.join("config.yaml");
-                            let entry = if let Ok(cfg_content) = std::fs::read_to_string(&config_path) {
-                                if let Ok(cfg) = serde_yaml::from_str::<crate::config::Config>(&cfg_content) {
-                                    cfg.train_script.unwrap_or_else(|| "train.py".into())
+                            let entry =
+                                if let Ok(cfg_content) = std::fs::read_to_string(&config_path) {
+                                    if let Ok(cfg) =
+                                        serde_yaml::from_str::<crate::config::Config>(&cfg_content)
+                                    {
+                                        cfg.train_script.unwrap_or_else(|| "train.py".into())
+                                    } else {
+                                        "train.py".into()
+                                    }
                                 } else {
                                     "train.py".into()
-                                }
-                            } else {
-                                "train.py".into()
-                            };
+                                };
+                            // Read logger.log and append to output
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✓ Execute complete. Entry: {} (in {})", entry, project_root.display()));
-                            s.output_lines.push("agent: Run /runner to train, or /tester to verify.".into());
+                            s.output_lines.push("agent: [executor] completed".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                for line in log_lines {
+                                    s.output_lines.push(line);
+                                }
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!(
+                                "agent: Execute complete. Entry: {} (in {})",
+                                entry,
+                                project_root.display()
+                            ));
+                            s.output_lines
+                                .push("agent: Run /runner to train, or /tester to verify.".into());
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Execute complete".into());
                             s.agent_progress = None;
@@ -1005,7 +1055,18 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                         }
                         Err(e) => {
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✗ Execute error: {}", e));
+                            s.output_lines
+                                .push("agent: [executor] completed with error".into());
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                for line in log_lines {
+                                    s.output_lines.push(line);
+                                }
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!("agent: Execute error: {}", e));
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Execute failed".into());
                             s.agent_progress = None;
@@ -1018,18 +1079,30 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
         "/checker" => {
             let project_root = {
                 let s = state.lock().unwrap();
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let plan_path = project_root.join("plan.md");
             if !plan_path.exists() {
                 let mut s = state.lock().unwrap();
-                s.output_lines.push("agent: No plan.md found. Run /plan first.".into());
+                s.output_lines
+                    .push("agent: No plan.md found. Run /plan first.".into());
                 s.output_scroll = usize::MAX;
             } else {
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let mut s = state.lock().unwrap();
                 s.active_agent = Some("checker".into());
-                s.agent_task = Some("Checking plan".into());
-                s.output_lines.push("user: /checker;agent: Starting checker...".into());
+                s.agent_task = Some("Running...".into());
+                s.output_lines.push("user: /checker".into());
+                s.output_lines.push("agent: [checker] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    s.output_lines.extend(log_lines);
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 drop(s);
                 let state_clone = state.clone();
@@ -1037,17 +1110,34 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                     let agent = llm_agent::CoLoMoAgent::new(project_root);
                     match agent.run_checker().await {
                         Ok(_) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push("agent: ✓ Check complete".into());
+                            s.output_lines.push("agent: [checker] completed".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push("agent: Check complete".into());
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Check complete".into());
                             s.agent_progress = None;
                             s.active_agent = None;
                         }
                         Err(e) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✗ Check error: {}", e));
+                            s.output_lines.push("agent: [checker] completed with error".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!("agent: Check error: {}", e));
                             s.output_scroll = usize::MAX;
+                            s.agent_task = Some("Check failed".into());
                             s.active_agent = None;
                         }
                     }
@@ -1057,18 +1147,30 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
         "/summary" => {
             let project_root = {
                 let s = state.lock().unwrap();
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let plan_path = project_root.join("plan.md");
             if !plan_path.exists() {
                 let mut s = state.lock().unwrap();
-                s.output_lines.push("agent: No plan.md found. Run /plan first.".into());
+                s.output_lines
+                    .push("agent: No plan.md found. Run /plan first.".into());
                 s.output_scroll = usize::MAX;
             } else {
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let mut s = state.lock().unwrap();
                 s.active_agent = Some("summary".into());
-                s.agent_task = Some("Generating summary".into());
-                s.output_lines.push("user: /summary;agent: Generating structured summary...".into());
+                s.agent_task = Some("Running...".into());
+                s.output_lines.push("user: /summary".into());
+                s.output_lines.push("agent: [summary] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    s.output_lines.extend(log_lines);
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 drop(s);
                 let state_clone = state.clone();
@@ -1076,17 +1178,38 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                     let agent = llm_agent::CoLoMoAgent::new(project_root);
                     match agent.run_summary().await {
                         Ok(summary) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✓ Summary: {}", &summary[..summary.len().min(200)]));
+                            s.output_lines.push("agent: [summary] completed".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!(
+                                "agent: Summary: {}",
+                                &summary[..summary.len().min(200)]
+                            ));
                             s.agent_last_summary = Some(summary);
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Summary complete".into());
                             s.active_agent = None;
                         }
                         Err(e) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✗ Summary error: {}", e));
+                            s.output_lines.push("agent: [summary] completed with error".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines
+                                .push(format!("agent: Summary error: {}", e));
                             s.output_scroll = usize::MAX;
+                            s.agent_task = Some("Summary failed".into());
                             s.active_agent = None;
                         }
                     }
@@ -1096,7 +1219,10 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
         "/tester" => {
             let project_root = {
                 let s = state.lock().unwrap();
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let config_path = project_root.join("config.yaml");
             if !config_path.exists() {
@@ -1104,10 +1230,18 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                 s.output_lines.push("agent: No config.yaml found.".into());
                 s.output_scroll = usize::MAX;
             } else {
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let mut s = state.lock().unwrap();
                 s.active_agent = Some("tester".into());
-                s.agent_task = Some("Running tests".into());
-                s.output_lines.push("user: /tester;agent: Starting tester...".into());
+                s.agent_task = Some("Running...".into());
+                s.output_lines.push("user: /tester".into());
+                s.output_lines.push("agent: [tester] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    s.output_lines.extend(log_lines);
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 drop(s);
                 let state_clone = state.clone();
@@ -1115,17 +1249,37 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                     let agent = llm_agent::CoLoMoAgent::new(project_root);
                     match agent.run_tester().await {
                         Ok(summary) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✓ Test: {}", &summary[..summary.len().min(200)]));
+                            s.output_lines.push("agent: [tester] completed".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!(
+                                "agent: Test: {}",
+                                &summary[..summary.len().min(200)]
+                            ));
                             s.agent_last_summary = Some(summary);
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Test complete".into());
                             s.active_agent = None;
                         }
                         Err(e) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✗ Test error: {}", e));
+                            s.output_lines.push("agent: [tester] completed with error".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines.push(format!("agent: Test error: {}", e));
                             s.output_scroll = usize::MAX;
+                            s.agent_task = Some("Test failed".into());
                             s.active_agent = None;
                         }
                     }
@@ -1136,28 +1290,40 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
             let project_root = {
                 let mut s = state.lock().unwrap();
                 if s.running {
-                    s.output_lines.push("agent: Training already running. Use /stop first.".into());
+                    s.output_lines
+                        .push("agent: Training already running. Use /stop first.".into());
                     s.output_scroll = usize::MAX;
                     return;
                 }
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
+            let out_width = 80usize.saturating_sub(6);
+            let log_lines = read_logger_log(out_width);
             let mut s = state.lock().unwrap();
             s.active_agent = Some("runner".into());
-            s.agent_task = Some("Training".into());
-            s.output_lines.push("user: /runner;agent: Starting training...".into());
+            s.agent_task = Some("Running...".into());
+            s.output_lines.push("user: /runner".into());
+            s.output_lines.push("agent: [runner] running...".into());
+            if !log_lines.is_empty() {
+                s.output_lines.push("--- logger.log ---".into());
+                s.output_lines.extend(log_lines);
+                s.output_lines.push("---".into());
+            }
             s.output_scroll = usize::MAX;
             drop(s);
             let agent = llm_agent::CoLoMoAgent::new(project_root);
             agent.run_runner_blocking();
-            let mut s = state.lock().unwrap();
-            s.agent_task = Some("Running".into());
-            s.active_agent = None;
         }
         "/status" => {
             let project_root = {
                 let s = state.lock().unwrap();
-                s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                s.cfg_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."))
             };
             let plan_path = project_root.join("plan.md");
             let running = {
@@ -1172,7 +1338,10 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                 "agent: status: plan_exists={}; running={}; summary={}",
                 plan_path.exists(),
                 running,
-                last_summary.as_ref().map(|s| &s[..s.len().min(50)]).unwrap_or("none")
+                last_summary
+                    .as_ref()
+                    .map(|s| &s[..s.len().min(50)])
+                    .unwrap_or("none")
             );
             let mut s = state.lock().unwrap();
             s.output_lines.push(status);
@@ -1182,10 +1351,24 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
             let requirement = if cmd.len() > 14 { cmd[14..].trim() } else { "" };
             if requirement.is_empty() {
                 let mut s = state.lock().unwrap();
-                s.output_lines.push("Usage: /auto-complete <requirement>".into());
-                s.output_lines.push("Example: /auto-complete PyTorch CNN for MNIST".into());
+                s.output_lines
+                    .push("Usage: /auto-complete <requirement>".into());
+                s.output_lines
+                    .push("Example: /auto-complete PyTorch CNN for MNIST".into());
                 s.output_scroll = usize::MAX;
             } else {
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
+                let mut s = state.lock().unwrap();
+                s.output_lines.push(format!("user: /auto-complete {} ---分割线", requirement));
+                s.output_lines.push("agent: [autocomplete] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    s.output_lines.extend(log_lines);
+                    s.output_lines.push("---".into());
+                }
+                s.output_scroll = usize::MAX;
+                drop(s);
                 let state_clone = state.clone();
                 let runner = llm_agent::AgentRunner::new(state_clone);
                 runner.spawn_auto_complete(requirement.to_string());
@@ -1195,14 +1378,24 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
             let topic = if cmd.len() > 8 { cmd[8..].trim() } else { "" };
             if topic.is_empty() {
                 let mut s = state.lock().unwrap();
-                s.output_lines.push("Usage: /teacher <algorithm/topic>".into());
-                s.output_lines.push("Example: /teacher CNN, /teacher Adam optimizer".into());
+                s.output_lines
+                    .push("Usage: /teacher <algorithm/topic>".into());
+                s.output_lines
+                    .push("Example: /teacher CNN, /teacher Adam optimizer".into());
                 s.output_scroll = usize::MAX;
             } else {
+                let out_width = 80usize.saturating_sub(6);
+                let log_lines = read_logger_log(out_width);
                 let mut s = state.lock().unwrap();
                 s.active_agent = Some("teacher".into());
-                s.agent_task = Some("Explaining algorithm".into());
-                s.output_lines.push(format!("user: /teacher {};agent: ", topic));
+                s.agent_task = Some("Running...".into());
+                s.output_lines.push(format!("user: /teacher {}", topic));
+                s.output_lines.push("agent: [teacher] running...".into());
+                if !log_lines.is_empty() {
+                    s.output_lines.push("--- logger.log ---".into());
+                    s.output_lines.extend(log_lines);
+                    s.output_lines.push("---".into());
+                }
                 s.output_scroll = usize::MAX;
                 drop(s);
                 let state_clone = state.clone();
@@ -1210,21 +1403,43 @@ fn exec_command(cmd: &str, state: Arc<std::sync::Mutex<AppState>>) {
                 tokio::spawn(async move {
                     let project_root = {
                         let s = state_clone.lock().unwrap();
-                        s.cfg_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+                        s.cfg_path
+                            .parent()
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| PathBuf::from("."))
                     };
                     let agent = llm_agent::CoLoMoAgent::new(project_root);
                     match agent.run_teacher(&topic_str).await {
                         Ok(output) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✓ {}", &output[..output.len().min(300)]));
+                            s.output_lines.push("agent: [teacher] completed".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines
+                                .push(format!("agent: {}", &output[..output.len().min(300)]));
                             s.output_scroll = usize::MAX;
                             s.agent_task = Some("Explanation complete".into());
                             s.active_agent = None;
                         }
                         Err(e) => {
+                            let out_width = 80usize.saturating_sub(6);
+                            let log_lines = read_logger_log(out_width);
                             let mut s = state_clone.lock().unwrap();
-                            s.output_lines.push(format!("agent: ✗ Teacher error: {}", e));
+                            s.output_lines.push("agent: [teacher] completed with error".into());
+                            if !log_lines.is_empty() {
+                                s.output_lines.push("--- logger.log ---".into());
+                                s.output_lines.extend(log_lines);
+                                s.output_lines.push("---".into());
+                            }
+                            s.output_lines
+                                .push(format!("agent: Teacher error: {}", e));
                             s.output_scroll = usize::MAX;
+                            s.agent_task = Some("Teacher failed".into());
                             s.active_agent = None;
                         }
                     }
@@ -1279,8 +1494,108 @@ fn apply_reco(reco: &advisor::Recommendation, state: &mut AppState) {
 }
 
 // ============================================================================
-// TUI Rendering
+// Log File Helpers
 // ============================================================================
+
+/// Strip leading [digits] timestamp and space prefix from a log line.
+fn strip_timestamp_prefix(line: &str) -> &str {
+    let mut s = line;
+    // Keep stripping leading '[' / digits / ']' / spaces iteratively
+    loop {
+        let s2 = s
+            .strip_prefix('[')
+            .and_then(|t| t.strip_prefix(|c: char| c.is_ascii_digit()))
+            .and_then(|t| {
+                while t.starts_with(|c: char| c.is_ascii_digit()) {
+                    if let Some(n) = t.strip_prefix(|c: char| c.is_ascii_digit()) {
+                        s = t;
+                    } else {
+                        break;
+                    }
+                }
+                Some(t)
+            })
+            .and_then(|t| t.strip_prefix(']'))
+            .and_then(|t| t.strip_prefix(' '));
+        match s2 {
+            Some(next) => {
+                if next == s {
+                    break;
+                }
+                s = next;
+            }
+            None => break,
+        }
+    }
+    // Also strip a leading `[` that wasn't part of a [digits] bracket
+    if let Some(without_bracket) = s.strip_prefix('[') {
+        s = without_bracket;
+    }
+    s.trim_start()
+}
+
+/// Read logger.log and return lines wrapped to `width` columns (char-based).
+fn read_logger_log(width: usize) -> Vec<String> {
+    let log_path = {
+        let s = get_state().lock().unwrap();
+        s.cfg_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("logs")
+            .join("logger.log")
+    };
+    let content = std::fs::read_to_string(&log_path).unwrap_or_default();
+
+    let mut result = Vec::new();
+    for line in content.lines() {
+        let line = strip_timestamp_prefix(line);
+
+        if line.trim().is_empty() {
+            result.push(String::new());
+            continue;
+        }
+
+        // Word-wrap at `width` chars (char-based to handle UTF-8 safely)
+        let chars: Vec<char> = line.chars().collect();
+        let mut pos = 0;
+        while pos < chars.len() {
+            let end = (pos + width).min(chars.len());
+            if end - pos < width || end == chars.len() {
+                // Last chunk or short enough, emit as-is
+                result.push(chars[pos..].iter().collect());
+                break;
+            }
+            // Find last space in [pos, end)
+            let mut split = end;
+            for i in (pos..end).rev() {
+                if chars[i] == ' ' {
+                    split = i;
+                    break;
+                }
+            }
+            if split == end {
+                // No space found, hard wrap
+                result.push(chars[pos..end].iter().collect());
+                pos = end;
+            } else {
+                result.push(chars[pos..split].iter().collect());
+                pos = split + 1; // skip the space
+            }
+        }
+    }
+    result
+}
+
+/// Push "running..." indicator to output during agent execution.
+fn push_running(state: &Arc<Mutex<AppState>>, agent_name: &str) {
+    let mut s = state.lock().unwrap();
+    s.active_agent = Some(agent_name.into());
+    s.agent_task = Some("Running...".into());
+    s.output_lines
+        .push(format!("agent: [{}] running...", agent_name));
+    s.output_scroll = usize::MAX;
+}
 
 fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
     let lbl = labels(&state.lang);
@@ -1335,7 +1650,8 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
             if let (Some(total), Some(used)) = (snap.gpu.total_mb, snap.gpu.used_mb) {
                 lines.push(Line::from(format!(
                     "  GPU: {}/{} MB ({:.1}% used)",
-                    used, total,
+                    used,
+                    total,
                     (used as f64 / total as f64 * 100.0)
                 )));
             } else if let Some(util) = snap.gpu.utilization_pct {
@@ -1343,7 +1659,8 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
             }
             lines.push(Line::from(format!(
                 "  RAM: {}/{} MB ({:.1}% used)",
-                snap.used_memory_mb, snap.system_memory_mb,
+                snap.used_memory_mb,
+                snap.system_memory_mb,
                 (snap.used_memory_mb as f64 / snap.system_memory_mb as f64 * 100.0)
             )));
             lines.push(Line::from(format!("  CPU: {:.1}%", snap.cpu_usage_pct)));
@@ -1352,7 +1669,11 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
             vec![Line::from("(no system info)")]
         };
         let sys_block = Paragraph::new(sys_content)
-            .block(Block::default().title("System Monitor").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("System Monitor")
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: true });
         f.render_widget(sys_block, guided_bottom[0]);
 
@@ -1361,7 +1682,9 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
             let mut lines = Vec::new();
             lines.push(Line::from(vec![Span::styled(
                 "Stable Recommendation",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Cyan),
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Cyan),
             )]));
             lines.push(Line::from(format!(
                 "  batch: {} (was {})",
@@ -1380,7 +1703,11 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
             vec![Line::from("(no recommendation)")]
         };
         let reco_block = Paragraph::new(reco_content)
-            .block(Block::default().title("Recommendation").borders(Borders::ALL))
+            .block(
+                Block::default()
+                    .title("Recommendation")
+                    .borders(Borders::ALL),
+            )
             .wrap(Wrap { trim: true });
         f.render_widget(reco_block, guided_bottom[1]);
     }
@@ -1445,9 +1772,7 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
         let mut lines = Vec::new();
 
         // Fall back to summary_lines if no monitor data
-        if state.current_snapshot.is_none()
-            && !state.summary_lines.is_empty()
-        {
+        if state.current_snapshot.is_none() && !state.summary_lines.is_empty() {
             lines.extend(state.summary_lines.iter().map(|s| Line::from(s.as_str())));
         }
 
@@ -1476,19 +1801,52 @@ fn draw_tui(f: &mut Frame<'_>, area: Rect, state: &AppState) {
     let visible_lines = output_height.saturating_sub(2); // Account for borders/padding
     let max_scroll = state.output_lines.len().saturating_sub(visible_lines);
     let scroll = state.output_scroll.min(max_scroll);
-    // clean + wrap long lines
+    // available width for text (minus 2 for border + 2 for padding)
+    let avail_width = (bottom_chunks[0].width as usize).saturating_sub(4).max(10);
+    // Word-wrap long lines so none exceed avail_width
     let display_lines: Vec<Line> = state
         .output_lines
         .iter()
         .skip(scroll)
         .take(visible_lines)
-        .map(|s| {
-            let mut line = s.replace('\n', " ");
-            if line.len() > 200 {
-                line.truncate(200);
-                line.push('…');
+        .flat_map(|s| {
+            let mut result = Vec::new();
+            let clean = s.replace('\n', " ");
+            // If line is short enough, emit as-is
+            if clean.len() <= avail_width {
+                result.push(Line::from(clean));
+            } else {
+                // Multi-line wrap (char-based to handle UTF-8 safely)
+                let mut remaining = clean.as_str();
+                loop {
+                    if remaining.chars().count() <= avail_width {
+                        result.push(Line::from(remaining.to_string()));
+                        break;
+                    }
+                    // Find byte position for `avail_width` chars
+                    let mut byte_end = 0;
+                    let mut char_count = 0;
+                    for (i, c) in remaining.char_indices() {
+                        if char_count >= avail_width {
+                            break;
+                        }
+                        byte_end = i + c.len_utf8();
+                        char_count += 1;
+                    }
+                    if byte_end == 0 {
+                        byte_end = remaining.len();
+                    }
+                    if let Some(pos) = remaining[..byte_end].rfind(' ') {
+                        result.push(Line::from(remaining[..pos].to_string()));
+                        remaining = &remaining[pos + 1..];
+                    } else {
+                        // No space, hard wrap at char boundary
+                        result.push(Line::from(remaining[..byte_end].to_string()));
+                        remaining = &remaining[byte_end..];
+                    }
+                }
             }
-            Line::from(line)
+            result
         })
         .collect();
     let output_block = Paragraph::new(display_lines)
@@ -1856,8 +2214,6 @@ fn setup_terminal() -> Result<
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
-    
-
     let _ = dotenvy::dotenv();
 
     // Check for project in current directory
@@ -1947,14 +2303,30 @@ fn run_ui_loop_inner(
                     state.output_lines.push(msg);
                     state.output_scroll = usize::MAX;
                 }
-                UxEvent::SetActiveAgent(v) => { state.active_agent = Some(v); }
-                UxEvent::SetAgentTask(v) => { state.agent_task = Some(v); }
-                UxEvent::SetAgentProgress(v) => { state.agent_progress = Some(v); }
-                UxEvent::SetSummaryLines(v) => { state.summary_lines = v; }
-                UxEvent::SetTopRightLines(v) => { state.top_right_lines = v; }
-                UxEvent::SetOutputScroll(v) => { state.output_scroll = v; }
-                UxEvent::SetRunning(v) => { state.running = v; }
-                UxEvent::SetAgentLastSummary(v) => { state.agent_last_summary = Some(v); }
+                UxEvent::SetActiveAgent(v) => {
+                    state.active_agent = Some(v);
+                }
+                UxEvent::SetAgentTask(v) => {
+                    state.agent_task = Some(v);
+                }
+                UxEvent::SetAgentProgress(v) => {
+                    state.agent_progress = Some(v);
+                }
+                UxEvent::SetSummaryLines(v) => {
+                    state.summary_lines = v;
+                }
+                UxEvent::SetTopRightLines(v) => {
+                    state.top_right_lines = v;
+                }
+                UxEvent::SetOutputScroll(v) => {
+                    state.output_scroll = v;
+                }
+                UxEvent::SetRunning(v) => {
+                    state.running = v;
+                }
+                UxEvent::SetAgentLastSummary(v) => {
+                    state.agent_last_summary = Some(v);
+                }
             }
         }
     }

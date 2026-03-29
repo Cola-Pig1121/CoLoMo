@@ -856,6 +856,8 @@ impl CoLoMoAgent {
         let _state_arc = get_state().clone();
         let acc = Arc::new(Mutex::new(String::new()));
         let acc_closure = acc.clone();
+        let debug_log_closure = Arc::new(Mutex::new(String::new()));
+        let debug_log_acc = debug_log_closure.clone();
 
         // Read project context for the prompt
         let config_content = std::fs::read_to_string(&self.config_path).unwrap_or_default();
@@ -867,24 +869,88 @@ impl CoLoMoAgent {
             json!({"role":"user","content": format!("Plan:\n{}\n\nConfig:\n{}\n\nTrain script (first 30 lines):\n{}", plan_content, config_content, &train_content[..train_content.len().min(1000)])}),
         ];
 
+        // Only log to file, not to TUI output
         self.iflow_chat_stream(&model, messages, move |piece| {
             if let Ok(mut buf) = acc_closure.lock() {
                 buf.push_str(&piece);
             }
-            let line = piece.replace('\n', " ");
-            if !line.is_empty() {
-                send_ux(UxEvent::AppendOutput(format!("agent: {}", line)));
+            if let Ok(mut log_buf) = debug_log_acc.lock() {
+                log_buf.push_str(&piece);
+                log_buf.push('\n');
             }
         })
         .await?;
 
-        let acc_content = acc.lock().map(|b| b.clone()).unwrap_or_default();
+        // Flush accumulated chunks to logger.log
+        if let Ok(log_buf) = debug_log_closure.lock() {
+            if !log_buf.is_empty() {
+                debug_log(&format!("[Execute] LLM output:\n{}", log_buf.as_str()));
+            }
+        }
 
-        // Parse FILE: and CMD: blocks and execute them
-        self.execute_plan_actions(&acc_content)?;
+    let acc_content = acc.lock().map(|b| b.clone()).unwrap_or_default();
 
-        debug_log(&format!("[Execute] completed, {} chars", acc_content.len()));
-        Ok(acc_content)
+    // Parse FILE: and CMD: blocks and execute them
+    self.execute_plan_actions(&acc_content)?;
+
+    // After executor runs: adjust config.yaml and train.py
+    self.adjust_after_execute()?;
+
+    debug_log(&format!("[Execute] completed, {} chars", acc_content.len()));
+    Ok(acc_content)
+}
+
+    fn adjust_after_execute(&self) -> Result<(), AgentError> {
+        // Read the generated/executed files to adjust config and train entry
+        let config_content = std::fs::read_to_string(&self.config_path).unwrap_or_default();
+        let train_script = self.project_root.join("train.py");
+        let train_content = std::fs::read_to_string(&train_script).unwrap_or_default();
+
+        // Parse config to get batch_size, learning_rate, optimizer
+        let cfg: crate::config::Config = serde_yaml::from_str(&config_content)
+            .unwrap_or_default();
+
+        let mut needs_train_update = false;
+
+        // Adjust train.py entry points based on config
+        if !train_content.is_empty() {
+            let mut new_train = train_content.clone();
+
+            // Update batch_size in train.py if present
+            if let Some(batch_size) = cfg.batch_size {
+                let batch_pattern = regex::Regex::new(r"(?i)(batch_size|BATCH_SIZE)\s*[=:]\s*\d+").unwrap();
+                if batch_pattern.is_match(&new_train) {
+                    new_train = batch_pattern.replace_all(&new_train, format!("batch_size = {}", batch_size)).to_string();
+                    needs_train_update = true;
+                }
+            }
+
+            // Update learning_rate in train.py if present
+            if let Some(lr) = cfg.learning_rate {
+                let lr_pattern = regex::Regex::new(r"(?i)(learning_rate|LR|lr)\s*[=:]\s*[\d.e-]+").unwrap();
+                if lr_pattern.is_match(&new_train) {
+                    new_train = lr_pattern.replace_all(&new_train, format!("learning_rate = {}", lr)).to_string();
+                    needs_train_update = true;
+                }
+            }
+
+            // Update optimizer in train.py if present
+            if let Some(ref optimizer) = cfg.optimizer {
+                let opt_pattern = regex::Regex::new(r#"(?i)optimizer\s*[=:]\s*['"]?[\w]+['"]?"#).unwrap();
+                if opt_pattern.is_match(&new_train) {
+                    new_train = opt_pattern.replace_all(&new_train, format!("optimizer = \"{}\"", optimizer)).to_string();
+                    needs_train_update = true;
+                }
+            }
+
+            if needs_train_update {
+                std::fs::write(&train_script, &new_train)?;
+                debug_log(&format!("[Execute] adjusted train.py based on config"));
+            }
+        }
+
+        debug_log(&format!("[Execute] adjust_after_execute done"));
+        Ok(())
     }
 
     fn execute_plan_actions(&self, content: &str) -> Result<(), AgentError> {
@@ -1592,14 +1658,15 @@ impl AgentRunner {
             run_summary_step!("After Planner");
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-            // Step 3: Executor
+            // Step 3: Executor (all output to logger.log only)
             set_step!(3, 7, "[3/7] Executor");
             let agent2 = crate::llm_agent::CoLoMoAgent::new(project_root.clone());
             match agent2.run_execute().await {
-                Ok(_) => {
+                Ok(exec_output) => {
                     let mut s = state.lock().unwrap();
-                    s.output_lines.push("agent: ✓ Executor done".into());
+                    s.output_lines.push("agent: ✓ Executor done (output in logger.log)".into());
                     s.output_scroll = usize::MAX;
+                    debug_log(&format!("[AutoComplete] Executor output: {}", &exec_output[..exec_output.len().min(500)]));
                 }
                 Err(e) => {
                     let mut s = state.lock().unwrap();
