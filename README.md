@@ -39,22 +39,15 @@ Commands:
 
 ### Via Claude Code Marketplace (Recommended)
 
-Install directly from GitHub:
-
-```
-/plugin marketplace add https://github.com/Cola-Pig1121/CoLoMo
-```
-
-Or submit to the official marketplace at https://claude.ai/settings/plugins/submit.
-
-### Manual Install
-
 ```bash
-cp -r .claude-plugin ~/.claude/plugins/colomo/
-cp -r skills ~/.claude/plugins/colomo/
-cp -r agents ~/.claude/plugins/colomo/
-cp -r rules/ml ~/.claude/rules/ml/
+# 1. Add this GitHub repo as a marketplace
+/plugin marketplace add Cola-Pig1121/CoLoMo
+
+# 2. Install the plugin from that marketplace
+/plugin install colomo@Cola-Pig1121/CoLoMo
 ```
+
+> Requires Claude Code **v1.0.33+**. Alternatively, open `/plugin` in Claude Code and browse the **Marketplaces** tab to add this repo.
 
 ---
 
