@@ -21,5 +21,6 @@
     "llm"
   ],
   "agents": ["./agents/colomo.md"],
-  "skills": ["./skills/ml-training/SKILL.md"]
+  "skills": ["./skills/ml-training/SKILL.md"],
+  "commands": ["./commands/ml.md"]
 }
