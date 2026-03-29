@@ -1,6 +1,8 @@
 # CoLoMo 使用指南
 
-本文档提供 CoLoMo 的日常使用说明，面向希望本地训练模型、对抗 OOM、并系统化管理实验配置的机器学习工程师。
+> ⚠️ **Legacy document** — CoLoMo has been converted to a Claude Code plugin. The TUI application (`rust_watchdog/`) has been removed. See README.md for the new plugin-based usage.
+
+本文档为历史文档，CoLoMo 已转型为 Claude Code 插件，原 TUI 应用已移除。
 
 ---
 

@@ -1,338 +1,130 @@
-# CoLoMo — Collaborative Local Model Trainer
+# CoLoMo — ML Training Plugin for Claude Code
 
-**CoLoMo** 是一个本地优先、终端驱动的机器学习训练编排工具。它在一个 TUI 界面中完成了以下全部工作：监督 Conda 环境下的 Python 训练任务、监控 GPU 显存、提供自动超参数推荐、支持完整的实验回滚。
-
----
-
-## 目的
-
-本地训练机器学习模型需要不断循环：猜参数 -> 运行 -> 观察 OOM/报错 -> 调整 -> 重新运行。CoLoMo 将枯燥的环节自动化：
-
-- **Watchdog** — 在指定的 Conda 环境中启动训练，捕获 stdout/stderr，记录每次运行日志。
-- **Advisor** — 每次运行结束后，根据 GPU 使用情况和日志信号推荐 batch size、学习率、优化器的调整。
-- **Journal** — 每次配置变更都记录快照；回滚可以原子撤销最近 N 次变更。
-- **Templates** — 结构化的代码片段和完整项目模板，强制执行最佳实践，消除复制粘贴。
-- **Agents** — 一组无状态 Agent（research、teacher、planner、runner、checker、environmentalist、tester）接管从研究到训练再到评估的完整流程，最小化人工干预。
+**CoLoMo** is a Claude Code plugin that provides ML training knowledge: Golden Rules for hyperparameter tuning, PyTorch code patterns, LLM fine-tuning guidance (LoRA/QLoRA/SFT/RLHF), and autonomous training agent workflows.
 
 ---
 
-## 前景
+## What This Plugin Provides
 
-CoLoMo 设计上可逐步演化为**协作研究平台**：
+### 1. ML Training Skill (`skills/ml-training/SKILL.md`)
 
-1. **多候选评估** — research agent 生成 2-4 个算法变体；tester 按准确率、延迟、显存、吞吐、能耗等指标打分。
-2. **多模型对比** — researcher 查询多个 LLM 以检验算法选择的合理性，并记录分歧。
-3. **学习模式** — 启用后，teacher agent 每次调用算法时解释其原理、适用场景、优缺点。
-4. **IPynb + .py 双模式** — 项目可选用 Python 脚本或 Jupyter notebook；watchdog 分别调用 `jupyter nbconvert --execute` 或 `python` 执行。
-5. **可扩展后端** — CUDA、TileLang 或任何可通过 conda 调用的二进制程序。
+ML knowledge triggered automatically when discussing training topics:
 
----
+- **Golden Rules**: Batch size formulas, learning rate linear scaling, optimizer selection by parameter count
+- **PyTorch Patterns**: Training loops, gradient clipping, label smoothing, mixup, checkpointing, fine-tuning
+- **Distributed Training**: DDP, DeepSpeed ZeRO stages, BF16/FP16 mixed precision, Flash Attention
+- **LLM Fine-tuning**: 3-stage pipeline (pretrain → SFT → RLHF), LoRA/QLoRA configuration
+- **RAG**: Chunking strategies, vector DB selection, hybrid retrieval
 
-## 架构
+### 2. CoLoMo Agent (`agents/colomo.md`)
 
-```
-+------------------------------------------------------------+
-|  TUI  (ratatui + crossterm)                               |
-|  ┌──────────────────┬────────────────────────────────┐   |
-|  │ Guided Config     │ Plan/Todo │ Logs │ Summary     │   |
-|  │ 或 Expert Files   │ [>>]进行中│      │ A=Apply     │   |
-|  │                  │ [DONE]完成│      │             │   |
-|  ├──────────────────┴────────────────────────────────┤   |
-|  │ Command Input + Status (合并显示)                   │   |
-|  └────────────────────────────────────────────────────┘   |
-+----------------------------+-------------------------------+
-                             |
-+----------------------------v-------------------------------+
-|  rust_watchdog (Rust 二进制)                               |
-|  +----------+ +----------+ +----------+ +---------------+ |
-|  | watchdog | | advisor  | | journal  | | gpu_monitor   | |
-|  | 启动进程 | | 启发规则 | | JSONL   | | nvidia-smi   | |
-|  | conda run| | OOM/LR   | | 回滚    | | 降级模拟     | |
-|  +----------+ +----------+ +----------+ +---------------+ |
-|  +----------+ +----------+ +----------+ +---------------+ |
-|  | settings | | agent_   | | config  | | project_     | |
-|  | alpha/  | | runner   | |         | | creator      | |
-|  | 权重    | | API调用  | |         | |              | |
-|  +----------+ +----------+ +----------+ +---------------+ |
-+----------------------------+-------------------------------+
-                             | conda run -n <env> python/jupyter/tilelang
-+----------------------------v-------------------------------+
-|  projects/<name>/                                          |
-|  config.yaml | train.py | train.ipynb | logs/ | plan.md   |
-+------------------------------------------------------------+
-```
+Autonomous ML training subagent — use it when the user wants to go from a requirement to a trained model.
 
-### 模块说明
+Commands:
+- `/ml plan <requirement>` — generate implementation plan
+- `/ml run` — run training in Conda environment
+- `/ml test` — run pytest in Conda environment
+- `/ml advise` — GPU-based hyperparameter recommendations
+- `/ml explain <topic>` — explain ML algorithm
+- `/ml rollback [n]` — undo config changes
 
-| 模块 | 职责 |
-|------|------|
-| `main.rs` | TUI 界面、事件处理、布局渲染、命令解析 |
-| `agent_runner.rs` | AI Agent 调用（通过 Claude Code CLI）、进度反馈、计划生成 |
-| `watchdog.rs` | 在 Conda 环境下启动训练进程；捕获 stdout/stderr；写日志；跟踪 PID；记录退出码 |
-| `advisor.rs` | 基于 Golden Rules 的启发式推荐（OOM -> 减半 batch；GPU 空闲 -> +25% batch；LR 线性缩放；按参数量选优化器；grad accum） |
-| `journal.rs` | 追加带快照的 JSONL 条目；`pop_entries` 实现回滚；`restore_config` 恢复配置 |
-| `gpu_monitor.rs` | 查询 `nvidia-smi`；出错时降级为模拟的 8 GB GPU |
-| `settings.rs` | 读写 `settings.yaml`（safety_alpha、learning_mode、评分权重） |
-| `config.rs` | YAML 配置读写（config.yaml、requirements.txt） |
-| `project_creator.rs` | 交互式项目创建（mkdir + 模板生成） |
-| `env_check.rs` | 预检 conda 及环境是否存在 |
+### 3. ML Rules (`rules/ml/`)
+
+- **`coding-style.md`**: PyTorch conventions (device management, gradient handling, no in-place ops on pretrained weights, mixed precision)
+- **`patterns.md`**: Golden Rules formulas, fine-tuning patterns (frozen backbone / differential LR / LoRA / QLoRA), augmentation, distributed training
 
 ---
 
-## 设计原因
+## Installation
 
-### 为什么用 Rust 写 watchdog？
-
-- 单二进制文件，目标机器无需安装运行时。
-- `std::process::Command` 提供内存安全的进程监督。
-- ratatui 给出响应式 TUI，无需重量级的 Electron/Flutter。
-
-### 为什么用 JSONL 而非数据库做日志？
-
-- 仅追加模式：在 NFS/网络挂载上也能安全使用。
-- 人类可读：`cat journal.jsonl | jq` 即可检查。
-- 无状态 Agent 可零 SDK 解析。
-
-### 为什么用 Markdown 存储 Golden Rules（而非数据库）？
-
-- 版本控制的规则与代码同目录。
-- LLM 可直接检索规则（无需 ORM）。
-- 易于扩展：直接在 `rules.md` 添加章节即可。
-
-### 为什么处处用 `conda run`？
-
-- 跨 macOS/Linux/Windows 环境一致。
-- 同时支持 CUDA、TileLang 或任意 Python 后端。
-- 无需 Python 进程隔离。
-
-### 为什么 `safety_alpha` 默认是 0.85？
-
-- 为峰值激活值、梯度缓冲区和多 worker 预留余量。
-- 可配置：模型较小时可调高；频繁 OOM 时可调低。
-
----
-
-## 快速上手
-
-### 1. 编译
+Copy to your Claude Code plugin directory:
 
 ```bash
-cd rust_watchdog
-cargo build --release
+cp -r .claude-plugin ~/.claude/plugins/colomo/
+cp -r skills ~/.claude/plugins/colomo/
+cp -r agents ~/.claude/plugins/colomo/
+cp -r rules/ml ~/.claude/rules/ml/
 ```
 
-### 2. 配置环境变量
-
-```bash
-# 复制环境变量模板并填入 API key
-cp .env.example .env
-# 编辑 .env：填入 IFLOW_API_BASE、IFLOW_API_KEY
-```
-
-### 3. 创建示例项目
-
-```bash
-# 复制完整 PyTorch 模板
-python rust_watchdog/templates/model_templates/tools.py \
-  fetch pytorch_template projects/demo/
-
-# 或复制单个代码片段
-python rust_watchdog/templates/model_templates/tools.py \
-  fetch mixup projects/demo/mixup.py
-
-# Bash 快捷方式（自动选择 Python tool 或降级复制）
-bash scripts/use_template.sh pytorch_template projects/demo/
-```
-
-### 4. 启动 TUI
-
-```bash
-cd rust_watchdog
-cargo run
-```
-
-**快捷键：**
-- `A` — 应用 Advisor 推荐（更新配置并记录日志）
-- `/` — 进入命令模式，输入命令后回车执行
-- `Tab` — 补全当前选中的命令
-- `↑` / `↓` — 导航命令列表
-- `鼠标左键` — 定位光标
-- `鼠标右键` — 粘贴剪贴板
-- `Esc` — 取消命令模式
-- `Ctrl+C` — 退出
-
-### 5. 命令模式中的指令
-
-```
-/plan <requirement>    # 基于需求生成计划（调用 AI Agent）
-/new                   # 交互式创建新项目
-/open <path>          # 打开已有项目
-/setting safety_alpha=0.9
-/setting acc=0.5 lat=0.2 mem=0.1 thr=0.1 energy=0.1
-/setting learning_mode=true
-/rollback 3
-/expert                # 专家模式（直接编辑文件）
-/guided                # 引导模式（表格配置）
-/save                  # 保存配置
-/run                   # 运行训练
-/apply                 # 应用推荐
-/stop                  # 停止训练
-/edit-own              # 在编辑器中打开文件
-```
-
-### 6. 命令行回滚
-
-```bash
-# 仅打印最近 3 条日志，不实际执行
-cargo run -- --rollback --steps 3
-
-# 执行回滚（config 文件将被恢复）
-cargo run -- --rollback --steps 1
-```
+Or publish to GitHub and install via Claude Code marketplace.
 
 ---
 
-## Agent 系统
+## Golden Rules Quick Reference
 
-Agent 通过 `agent_runner.rs` 在 TUI 中集成，支持实时反馈。
+| Signal | Rule | Action |
+|--------|------|--------|
+| CUDA OOM | `BS = α × GPU_mem / (param_mem + activation_mem)` | Halve batch_size |
+| GPU util < 50% | — | Increase batch by 25% |
+| Batch changed | `LR_new = LR_old × (BS_new / BS_old)` | Scale LR linearly |
+| Params > 100M | — | Use AdamW |
+| Params 10M–100M | — | Use Adam |
+| Params < 10M | — | Use SGD |
+| Batch reduced | — | Set `grad_accum_steps = ceil(old / new)` |
 
-| Agent | 输入 | 输出 | TUI 命令 |
-|-------|------|------|----------|
-| `planner` | 用户需求 | `.claude/plan/plan.md` | `/plan <requirement>` 或直接输入需求 |
-| `research` | 需求 + MVP 文档 | `.claude/research/{plan, candidates.yaml, scorecard.md}` | 规划中 |
-| `environmentalist` | 系统配置 + 规则 | JSON 格式超参 | 规划中 |
-| `executor` | 计划 + 模板 | 训练好的 checkpoint | 规划中 |
-| `checker` | 工作树 | `.claude/check/report.md` | 规划中 |
-| `runner` | 候选方案 | 运行中的训练进程 | 规划中 |
-| `tester` | 候选方案 + checkpoint | `.claude/test/scorecard.md` | 规划中 |
-| `summary` | 所有产物 | 总结报告 | 规划中 |
-| `teacher` | 模板索引 + 关键词 | 算法解释 | 规划中 |
-
-### Planner Agent 工作流程
-
-1. 用户输入需求（如 `/plan implement batch size auto-tuning`）
-2. TUI 显示实时进度：
-   ```
-   [1/5] Understanding requirement
-   [2/5] Analyzing project context
-   [3/5] Generating implementation plan
-   [4/5] Validating plan
-   [5/5] Plan ready
-   ```
-3. 右上角 Plan/Todo 面板显示任务列表（带颜色标记）
-4. 计划保存至 `projects/<name>/.claude/plan/plan.md`
-5. 状态栏显示 `[planner] Plan generated | Done`
-
-### Teacher Agent
-
-当 `settings.yaml` 中 `learning_mode=true` 时，teacher agent 解释每个算法的原理：
-
-```bash
-python rust_watchdog/templates/model_templates/tools.py list
-# label_smoothing  snippet  Loss | Label smoothing criterion
-```
-
-Teacher 读取 `index.json` 中的 `description`、`principle`、`pros`、`cons` 字段（可扩展），生成可读的解释。
+Default `α` (safety_alpha) = **0.85** — reserve 15% VRAM headroom.
 
 ---
 
-## 配置说明
+## PyTorch Snippet Index
 
-### `settings.yaml`（TUI 命令模式或命令行 `--setting`）
-
-```yaml
-safety_alpha: 0.85       # GPU 显存预留比例（0.5-0.95）
-learning_mode: false     # 启用 teacher 解释
-weights:                 # 多候选评估时的评分权重
-  acc: 0.6
-  lat: 0.2
-  mem: 0.2
-  thr: 0.0
-  energy: 0.0
-```
-
-### `config.yaml`（每个项目独立）
-
-```yaml
-conda_env: colomo
-backend: cuda            # cuda | tilelang | jupyter
-train_script: projects/demo/train.py   # 或 .ipynb
-batch_size: 32
-learning_rate: 0.0003
-optimizer: AdamW
-param_count: 110000000   # advisor 用于选择优化器
-```
+| Snippet | Category | Use when |
+|---------|----------|----------|
+| `label_smoothing` | Loss | Noisy labels, calibration |
+| `mixup` | Augmentation | Generalization, adversarial robustness |
+| `grad_clip` | Training | Deep transformers, RNNs |
+| `lr_decay` | Scheduler | Cosine or step decay |
+| `checkpoint_save_load` | IO | Resuming after interruption |
+| `finetune_fc` | Finetune | Frozen backbone + train head |
+| `finetune_fc_high_lr_conv_low_lr` | Finetune | Differential LR (BERT style) |
+| `no_weight_decay_bias` | Optimizer | Standard fine-tuning practice |
+| `extract_imagenet_layer_feature` | Feature | Transfer learning |
+| `train_visualization` | Vis | Loss/accuracy plots |
 
 ---
 
-## 模板索引
-
-完整目录见 `rust_watchdog/templates/model_templates/index.json`。
-
-主要模板：
-- `pytorch_template` — 完整项目脚手架（trainer、data loader、utils）
-- `label_smoothing` — 损失代码片段
-- `mixup` — 数据增强片段
-- `grad_clip` — 训练代码片段
-- `lr_decay` — 学习率调度器片段
-- `checkpoint_save_load` — IO 代码片段
-- `finetune_fc` / `finetune_fc_high_lr_conv_low_lr` — 微调代码片段
-
----
-
-## 文件结构
+## Architecture
 
 ```
 CoLoMo/
-├── rust_watchdog/
-│   ├── src/
-│   │   ├── main.rs          # TUI + CLI 入口
-│   │   ├── lib.rs           # 模块导出（供测试使用）
-│   │   ├── watchdog.rs      # 进程监督器
-│   │   ├── advisor.rs       # Golden Rules 引擎
-│   │   ├── journal.rs       # JSONL 日志 + 回滚
-│   │   ├── gpu_monitor.rs   # nvidia-smi 轮询器
-│   │   ├── settings.rs      # settings.yaml 读写
-│   │   ├── llm.rs           # iflow API 封装
-│   │   ├── summarizer.rs    # 日志 -> 摘要 + 可选 LLM 备注
-│   │   ├── config.rs        # YAML 配置读写
-│   │   ├── tui.rs           # GuidedState + 绘制函数
-│   │   └── env_check.rs     # Conda 存在性/环境检查
-│   ├── tests/               # 集成测试
-│   ├── templates/
-│   │   ├── model_templates/
-│   │   │   ├── index.json   # 统一模板目录
-│   │   │   ├── tools.py     # Python 工具（list/fetch）
-│   │   │   ├── pytorch-template/  # 完整项目脚手架
-│   │   │   └── pytorch-snippets/  # 独立代码片段
-│   │   └── rules.md         # 供 advisor 参考的 Golden Rules
-│   └── settings.yaml        # 默认配置（首次运行自动创建）
+├── .claude-plugin/
+│   └── plugin.json          # Plugin manifest
+├── skills/
+│   └── ml-training/
+│       └── SKILL.md        # ML knowledge base
 ├── agents/
-│   ├── planner/     soul.md tool.md
-│   ├── research/    soul.md tool.sh
-│   ├── environmentalist/  soul.md derive_params.sh
-│   ├── executor/    soul.md tool.sh
-│   ├── checker/     soul.md check.sh
-│   ├── runner/      soul.md run.sh
-│   ├── tester/      soul.md tool.sh
-│   ├── summary/     soul.md tool.md
-│   └── teacher/     soul.md tool.md
-├── projects/              # 用户项目（由 agent 创建）
-│   └── demo/
-│       ├── config.yaml
-│       ├── train.py
-│       └── logs/
-├── scripts/
-│   ├── use_template.sh    # 统一模板复制（Bash 入口）
-│   └── cc-pipeline.sh     # 阶段流水线（dry-run）
-└── README.md
+│   └── colomo.md           # CoLoMo subagent
+├── rules/
+│   └── ml/
+│       ├── coding-style.md # PyTorch conventions
+│       └── patterns.md      # Golden Rules + patterns
+├── docs/
+│   ├── CONTRIBUTING.md     # Development guide
+│   └── SETUP.md          # Configuration reference
+└── CLAUDE.md             # Claude Code guidance
 ```
 
 ---
 
-## 扩展点
+## Fine-tuning Decision Tree
 
-- **新增代码片段**：在 `pytorch-snippets/` 放入 `.py` 文件，在 `index.json` 添加条目（包含 `key`、`type`、`path`、`description`，可选 `principle`/`pros`/`cons` 用于 teacher 模式）。
-- **新增后端**：扩展 `watchdog.rs` 的 match 分支（如 `"triton"` -> `tilelang run`）。
-- **替换 LLM**：修改 `llm.rs` 使用不同 API（OpenAI、Anthropic、Groq）；summarizer 期望 `choices[0].message.content` 或 `output_text`。
-- **持久化运行记录**：在 `journal.rs` 中添加 SQLite/Postgres 写入器，以支持跨项目搜索。
+```
+Is model > 1B params and single GPU?
+├─ YES → QLoRA (4-bit NF4 base + LoRA adapters)
+└─ NO
+   ├─ Want maximum quality?
+   │  ├─ YES → Full fine-tune or RLHF
+   │  └─ NO
+   │     └─ LoRA (r=8–16, single GPU, ~0.1–1% trainable params)
+   └─ Have pretrained backbone?
+      ├─ YES
+      │  ├─ Small dataset → Frozen backbone + train head only
+      │  └─ Medium dataset → Differential LR (high head / low backbone)
+      └─ NO → Train from scratch
+```
+
+---
+
+## Contributing
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for development guidelines.

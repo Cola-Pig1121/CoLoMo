@@ -1,0 +1,7 @@
+{
+  "name": "colomo",
+  "version": "1.0.0",
+  "description": "ML training watchdog — hyperparameter tuning via Golden Rules, PyTorch code templates, autonomous training agents, and LLM fine-tuning guidance",
+  "author": { "name": "CoLoMo" },
+  "license": "MIT"
+}
