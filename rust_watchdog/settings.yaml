@@ -1,0 +1,9 @@
+safety_alpha: 0.85
+learning_mode: false
+debug: true
+weights:
+  acc: 0.6
+  lat: 0.2
+  mem: 0.2
+  thr: 0.0
+  energy: 0.0
