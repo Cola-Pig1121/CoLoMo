@@ -30,14 +30,57 @@ Requirement → /plan → plan.md → /execute → files + conda env → /runner
 
 ## Agent Pipeline Stages
 
-### 1. Plan (`/ml plan`)
-1. Understand the requirement
-2. Analyze project context (existing code, config, templates)
-3. Generate a markdown plan with tasks marked `[ ]`, `[>>]`, `[DONE]`
-4. Save to `<project>/plan.md`
-5. Return structured summary
+### 1. Detect System Config (always run first, before plan)
+Run these Bash commands and parse the output:
 
-### 2. Execute (`/ml execute`)
+```bash
+# GPU info
+nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu,temperature.gpu --format=csv,noheader
+
+# CPU/RAM info
+nproc
+free -h | grep Mem
+```
+
+Parse output to determine:
+- `GPU_Name`: GPU model
+- `VRAM_Total_MB`: Total VRAM in MB
+- `VRAM_Used_MB`: Currently used VRAM
+- `VRAM_Available_MB = VRAM_Total_MB × 0.90` (apply safety_alpha=0.90)
+- `CPU_Cores`: Number of CPU cores
+- `RAM_Total`: Total system RAM
+
+### 2. Calculate Hyperparameters (Golden Rules)
+
+For the given model architecture, estimate:
+- `param_count`: Count model parameters via `model.named_parameters()` or estimate from architecture
+- `param_mem_mb = param_count × 4` (FP32) or `× 2` (BF16/FP16)
+- `activation_mem_mb`: Estimate per-sample activation memory
+  - For CNN: `≈ 2 × channels × height × width × bytes_per_param`
+  - For transformers: `≈ 2 × layers × hidden_size² / batch_size`
+
+Golden Rules formula:
+```
+RecommendedBatchSize = 0.90 × VRAM_Available_MB / (ParamMem_MB + ActivationPerSample_MB)
+```
+
+Optimizer selection:
+| Params | Optimizer | Weight Decay |
+|--------|-----------|-------------|
+| < 10M | SGD + Momentum(0.9) | 5e-4 |
+| 10M – 100M | Adam | 1e-4 |
+| > 100M | AdamW | 0.01 |
+
+### 3. Plan (`/ml plan`)
+1. **Detect** system config (run nvidia-smi)
+2. **Calculate** hyperparameters (Golden Rules)
+3. Generate a markdown plan with tasks marked `[ ]`, `[>>]`, `[DONE]`
+4. **Include detected config in plan**: GPU name, VRAM, computed batch_size, lr, optimizer
+5. Generate `config.yaml` with computed `batch_size`, `learning_rate`, `optimizer`
+6. Save plan to `<project>/plan.md`
+7. Return structured summary
+
+### 4. Execute (`/ml execute`)
 - Reads `plan.md`
 - Creates necessary files using templates
 - Creates or updates Conda environment

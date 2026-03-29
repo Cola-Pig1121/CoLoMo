@@ -16,38 +16,66 @@ Invoke the **CoLoMo** agent for autonomous ML training assistance.
 
 | Subcommand | Description |
 |-----------|-------------|
-| `plan <requirement>` | Generate an implementation plan from a training requirement |
+| `plan <requirement>` | **Detect GPU → Calculate params → Generate plan** |
+| `detect` | Detect GPU/CPU config and show Golden Rules recommendations |
+| `advise` | GPU-based hyperparameter recommendations (Golden Rules) |
 | `run` | Run training in the project's Conda environment |
 | `test` | Run pytest in the project's Conda environment |
-| `advise` | GPU-based hyperparameter recommendations (Golden Rules) |
 | `explain <topic>` | Explain an ML algorithm (teacher mode) |
 | `rollback [n]` | Undo the last N config changes |
+
+## Workflow: `/ml plan`
+
+**Before planning, always detect system config first:**
+
+```
+1. Detect → nvidia-smi (GPU name, VRAM, utilization)
+2. Calculate → Golden Rules formula
+3. Plan → Generate plan.md with computed parameters
+```
+
+**Golden Rules formula (safety_alpha = 0.90):**
+```
+RecommendedBatchSize = 0.90 × (GPU_Memory_MB / (ParamMem_MB + ActivationPerSample_MB))
+```
 
 ## Examples
 
 ```
+# Full workflow: detect + plan
 /ml plan fine-tune Llama2 with QLoRA on a single GPU
 
+# Just see GPU info and recommendations
+/ml detect
+
+# Ask for advice on current config
 /ml advise
 
+# Explain an algorithm
 /ml explain LoRA
 
+# Rollback config changes
 /ml rollback 2
 ```
 
 ## What This Does
 
-The CoLoMo agent:
+### 1. Detect (`/ml detect` or automatic on `/ml plan`)
+- Runs `nvidia-smi` to get GPU name, VRAM total/used, utilization
+- Runs `nproc` and `free -h` for CPU/RAM info
+- Shows all detected hardware
 
-1. **Plan** (`/ml plan`) — analyzes requirements, generates a structured markdown plan with tasks
-2. **Advise** (`/ml advise`) — applies Golden Rules:
-   - `BS = 0.90 × GPU_mem / (param_mem + activation_mem)` → auto batch size
-   - `LR_new = LR_old × (BS_new / BS_old)` → linear LR scaling
-   - Optimizer: SGD (<10M), Adam (10M–100M), AdamW (>100M)
-3. **Run** (`/ml run`) — streams training stdout/stderr via `conda run`
-4. **Test** (`/ml test`) — runs pytest in the project's Conda environment
-5. **Explain** (`/ml explain`) — teacher mode with formulas, pros/cons, variants
-6. **Rollback** (`/ml rollback`) — restores `config.yaml` from journal snapshots
+### 2. Calculate (Golden Rules)
+- `BS = 0.90 × VRAM_Available / (param_mem + activation_mem)`
+- `LR_new = LR_old × (BS_new / BS_old)`
+- Optimizer: SGD (<10M params), Adam (10M–100M), AdamW (>100M)
+
+### 3. Plan (`/ml plan`)
+1. Detect system config
+2. Calculate hyperparameters using Golden Rules
+3. Generate `plan.md` with computed `batch_size`, `lr`, `optimizer`
+4. Generate `config.yaml` with those parameters
+5. Return structured summary
 
 ## Related
 
