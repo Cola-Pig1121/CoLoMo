@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "colomo-ml",
-  "description": "ML training knowledge base — Golden Rules, PyTorch snippets, LLM fine-tuning, RAG",
+  "description": "ML training knowledge base v2.0 — Golden Rules, PyTorch snippets, LLM fine-tuning, RAG, community templates, research mode with paper search, auto-complete workflows",
   "owner": {
     "name": "Cola-Pig1121",
     "email": "1259915998@qq.com"
@@ -10,8 +10,8 @@
     {
       "name": "colomo",
       "source": "./",
-      "description": "ML training plugin — auto-tunes batch size via Golden Rules, generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers)",
-      "version": "1.0.0",
+      "description": "ML training plugin v2.0 — auto-tunes batch size via Golden Rules, generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers), supports community templates, research mode with paper search, auto-complete workflows",
+      "version": "2.0.0",
       "author": {
         "name": "Cola-Pig1121",
         "email": "1259915998@qq.com"
@@ -28,7 +28,9 @@
         "hyperparameter",
         "rag",
         "distributed-training",
-        "llm"
+        "llm",
+        "community-templates",
+        "research-mode"
       ],
       "category": "workflow",
       "tags": [
@@ -37,7 +39,10 @@
         "training",
         "hyperparameter-tuning",
         "lora",
-        "rag"
+        "rag",
+        "community",
+        "research",
+        "auto-complete"
       ]
     }
   ]

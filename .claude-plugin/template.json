@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/template.schema.json",
+  "name": "colomo-template-manifest",
+  "description": "Community template manifest for CoLoMo ML training plugin",
+  "version": "1.0.0",
+  "templates": [
+    {
+      "name": "pytorch-template",
+      "type": "project",
+      "path": "templates/model_templates/pytorch-template",
+      "description": "Full PyTorch training project scaffold with trainer, data loader, model, utils",
+      "entry_point": "train.py",
+      "author": "Cola-Pig1121",
+      "tags": ["pytorch", "training", "scaffold"]
+    },
+    {
+      "name": "pytorch-snippets",
+      "type": "snippet_collection",
+      "path": "templates/pytorch-snippets",
+      "description": "17 standalone PyTorch snippets: label smoothing, mixup, grad clip, etc.",
+      "author": "Cola-Pig1121",
+      "tags": ["pytorch", "snippets", "reference"]
+    }
+  ],
+  "community_submission": {
+    "required_files": [".claude-plugin/template.json"],
+    "template_directory": "templates",
+    "validation": {
+      "must_have": ["description", "entry_point", "author"],
+      "must_be_valid_yaml": ["colomo_config.yaml"]
+    }
+  }
+}

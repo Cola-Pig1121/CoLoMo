@@ -1,7 +1,7 @@
 {
   "name": "colomo",
-  "version": "1.0.0",
-  "description": "ML training plugin — auto-tunes batch size via Golden Rules (10% VRAM reserved), generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers)",
+  "version": "2.0.0",
+  "description": "ML training plugin v2.0 — auto-tunes batch size via Golden Rules (10% VRAM reserved), generates training code from 17 templates, explains algorithms (LoRA/RAG/transformers), supports community templates, research mode with paper search, and auto-complete workflows.",
   "author": {
     "name": "Cola-Pig1121",
     "email": "1259915998@qq.com"
@@ -18,9 +18,11 @@
     "hyperparameter",
     "rag",
     "distributed-training",
-    "llm"
+    "llm",
+    "community-templates",
+    "research-mode"
   ],
   "agents": ["./agents/colomo.md"],
-  "skills": ["./skills/ml-training/SKILL.md"],
+  "skills": ["./skills/ml-training/SKILL.md", "./skills/research-mode/SKILL.md"],
   "commands": ["./commands/ml.md"]
 }

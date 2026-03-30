@@ -1,0 +1,101 @@
+# ============================================================
+# CoLoMo Configuration Template
+# Auto-generated on first /ml call
+# ============================================================
+# Version
+version: "2.0"
+
+# ----------------------------------------------------------
+# API Configuration (optional)
+# ----------------------------------------------------------
+# These keys enable research mode features:
+#   - Paper search (Semantic Scholar/arXiv)
+#   - Hallucination prevention with citations
+#   - Algorithm logic from latest papers
+#
+# Get Semantic Scholar key: https://api.semanticscholar.org
+# arXiv is free (no key required) but limited rate
+# ----------------------------------------------------------
+api:
+  semantic_scholar_key: ""   # Optional: enables research mode paper search
+  arxiv_key: ""              # Optional: fallback paper search
+  search_api_key: ""         # Optional: enhanced search
+
+# ----------------------------------------------------------
+# Mode Settings
+# ----------------------------------------------------------
+# Mode: "normal" or "research"
+#   - normal: Standard ML training with Golden Rules
+#   - research: Adds paper search, citations, hallucination prevention
+# ----------------------------------------------------------
+mode:
+  default: "normal"           # "normal" or "research"
+  auto_complete_confirm: true  # Ask before each step in auto-complete mode
+
+# ----------------------------------------------------------
+# System Detection (filled by /ml advise)
+# ----------------------------------------------------------
+system:
+  gpu_name: ""                # e.g., "NVIDIA RTX 4090"
+  vram_total_mb: 0             # Total VRAM in MB
+  vram_used_mb: 0              # Currently used VRAM
+  vram_available_mb: 0         # = vram_total_mb * 0.90 (safety_alpha)
+  cpu_cores: 0                # Number of CPU cores
+  ram_total_gb: 0.0           # Total RAM in GB
+  os: ""                      # Operating system
+
+# ----------------------------------------------------------
+# Training Parameters (filled by /ml advise or manual)
+# ----------------------------------------------------------
+training:
+  model_name: ""              # e.g., "resnet18", "bert-base-uncased"
+  model_type: ""              # resnet, vit, llama, bert, etc.
+  dataset: ""                 # e.g., "cifar10", "imagenet"
+  batch_size: 0               # Computed via Golden Rules
+  learning_rate: 0.0          # Computed via Golden Rules
+  optimizer: ""               # SGD, Adam, AdamW
+  weight_decay: 0.0          # Computed by param count
+  epochs: 0                   # User specified or default
+  gradient_clip: 1.0          # Default 1.0 for transformers
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"     # fp32, fp16, bf16
+  pretrained: true           # Use pretrained weights
+  num_workers: 4              # DataLoader workers
+  pin_memory: true            # Pin memory for GPU
+
+# ----------------------------------------------------------
+# Optimizer Selection (auto-set by param count)
+# ----------------------------------------------------------
+# | Params      | Optimizer       | Weight Decay |
+# |-------------|-----------------|--------------|
+# | < 10M       | SGD             | 5e-4         |
+# | 10M - 100M  | Adam            | 1e-4         |
+# | > 100M      | AdamW           | 0.01         |
+param_count: 0               # Total model parameters
+
+# ----------------------------------------------------------
+# Project Paths
+# ----------------------------------------------------------
+project:
+  root: "./"                  # Project root directory
+  conda_env: "colomo-ml"       # Conda environment name
+  output_dir: "./output"       # Training output directory
+  requirements_file: "./requirements.txt"
+  logs_dir: "./logs"           # Training logs
+  saved_dir: "./saved"         # Checkpoints
+
+# ----------------------------------------------------------
+# Verification Settings
+# ----------------------------------------------------------
+verify:
+  enabled: true
+  metrics: ["accuracy", "loss"]  # Metrics to verify
+  expected_accuracy: 0.0         # Set after first training
+  expected_loss: 0.0
+
+# ----------------------------------------------------------
+# Rollback History (managed by /ml rollback)
+# ----------------------------------------------------------
+rollback:
+  history: []                  # List of previous configs
+  max_history: 10              # Keep last N configs

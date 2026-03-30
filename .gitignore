@@ -1,4 +1,6 @@
 .claude/*
 .env
+.colomo/                     # Project-specific CoLoMo configs — DO NOT COMMIT
+.colomo_config.yaml         # Root-level project config — DO NOT COMMIT
+colomo_config.yaml.template  # Tracked: CoLoMo config template for new projects
 mnist/*
-AGENTS.md
